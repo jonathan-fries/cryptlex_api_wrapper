@@ -1,0 +1,118 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Cryptlex API Wrapper - Lambda functions for license provisioning and offline activation
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 30
+    MemorySize: 256
+    Environment:
+      Variables:
+        CRYPTLEX_BASE_URL: https://api.cryptlex.com/v3
+        API_KEYS_TABLE: !Ref ApiKeysTable
+        CRYPTLEX_SECRET_NAME: !Ref CryptlexCredentialsSecret
+
+Parameters:
+  CryptlexAccountId:
+    Type: String
+    Description: Your Cryptlex account ID
+  CryptlexEmail:
+    Type: String
+    Description: Email for Cryptlex API authentication
+  CryptlexPassword:
+    Type: String
+    NoEcho: true
+    Description: Password for Cryptlex API authentication
+  CryptlexProductId:
+    Type: String
+    Description: Default Cryptlex product ID for license creation
+
+Resources:
+
+  # --- DynamoDB table for API key authentication ---
+  ApiKeysTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: cryptlex-wrapper-api-keys
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: api_key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: api_key
+          KeyType: HASH
+
+  # --- Secrets Manager for Cryptlex credentials ---
+  CryptlexCredentialsSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: cryptlex-api-credentials
+      Description: Cryptlex API login credentials
+      SecretString: !Sub |
+        {
+          "account_id": "${CryptlexAccountId}",
+          "email": "${CryptlexEmail}",
+          "password": "${CryptlexPassword}",
+          "product_id": "${CryptlexProductId}"
+        }
+
+  # --- API Gateway ---
+  CryptlexApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: prod
+      Description: Cryptlex API Wrapper
+
+  # --- Lambda: Provision License ---
+  ProvisionLicenseFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: cryptlex-provision-license
+      Handler: src.provision_license.handler
+      CodeUri: .
+      Description: Provisions a new Cryptlex license
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ApiKeysTable
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: !Ref CryptlexCredentialsSecret
+      Events:
+        PostLicense:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CryptlexApi
+            Path: /licenses
+            Method: POST
+
+  # --- Lambda: Offline Activation ---
+  OfflineActivationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: cryptlex-offline-activation
+      Handler: src.offline_activation.handler
+      CodeUri: .
+      Description: Creates an offline activation for a Cryptlex license
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ApiKeysTable
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: !Ref CryptlexCredentialsSecret
+      Events:
+        PostOfflineActivation:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CryptlexApi
+            Path: /activations/offline
+            Method: POST
+
+Outputs:
+  ApiUrl:
+    Description: URL of the Cryptlex wrapper API
+    Value: !Sub "https://${CryptlexApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
+  ProvisionLicenseArn:
+    Description: ARN of the Provision License function
+    Value: !GetAtt ProvisionLicenseFunction.Arn
+  OfflineActivationArn:
+    Description: ARN of the Offline Activation function
+    Value: !GetAtt OfflineActivationFunction.Arn
