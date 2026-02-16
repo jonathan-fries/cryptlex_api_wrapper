@@ -1,15 +1,14 @@
 """Lambda handler: POST /licenses
 
-Provisions a new Cryptlex license with fixed configuration:
-  - productId:          1698882a-8ec9-4016-a452-875811d3c953
-  - allowedActivations: 2
-  - type:               hosted-floating
-  - licenseTemplateId:  2198e1f1-c416-44a2-b3e7-942233ca1d15
-  - validity:           31536000  (1 year in seconds)
-  - metadata:           LICENSE_VERSION = "full"
+Provisions a new Cryptlex license with fixed configuration.
+
+The caller authenticates using their own Cryptlex credentials so the
+license is created under their organization.
 
 Request body (JSON):
-    No required fields — all license parameters are set server-side.
+    email      (str, required): Cryptlex account email.
+    password   (str, required): Cryptlex account password.
+    accountId  (str, required): Cryptlex account ID.
 
 Response (200):
     The full license object returned by Cryptlex, including the generated key.
@@ -21,8 +20,7 @@ import traceback
 
 import requests
 
-from src.auth import validate_api_key
-from src.cryptlex_client import create_license
+from src.cryptlex_client import authenticate, create_license
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -55,14 +53,31 @@ def _response(status_code, body):
 
 
 def handler(event, context):
-    # --- Auth ---
-    caller = validate_api_key(event)
-    if caller is None:
-        return _response(401, {"error": "Unauthorized. Provide a valid API key."})
+    # --- Parse body ---
+    try:
+        body = json.loads(event.get("body") or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return _response(400, {"error": "Invalid JSON in request body."})
+
+    email = body.get("email")
+    password = body.get("password")
+    account_id = body.get("accountId")
+
+    if not email or not password or not account_id:
+        return _response(400, {"error": "email, password, and accountId are required."})
+
+    # --- Authenticate to Cryptlex ---
+    try:
+        access_token = authenticate(email, password, account_id)
+    except requests.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else 502
+        detail = exc.response.text if exc.response is not None else str(exc)
+        logger.error("Cryptlex auth failed: %s %s", status, detail)
+        return _response(401, {"error": "Cryptlex authentication failed.", "detail": detail})
 
     # --- Create license with fixed params ---
     try:
-        license_data = create_license(_PRODUCT_ID, **_LICENSE_DEFAULTS)
+        license_data = create_license(access_token, _PRODUCT_ID, **_LICENSE_DEFAULTS)
         logger.info("License created: %s", license_data.get("id", "unknown"))
         return _response(200, license_data)
 

@@ -10,52 +10,8 @@ Globals:
     Environment:
       Variables:
         CRYPTLEX_BASE_URL: https://api.cryptlex.com/v3
-        API_KEYS_TABLE: !Ref ApiKeysTable
-        CRYPTLEX_SECRET_NAME: !Ref CryptlexCredentialsSecret
-
-Parameters:
-  CryptlexAccountId:
-    Type: String
-    Description: Your Cryptlex account ID
-  CryptlexEmail:
-    Type: String
-    Description: Email for Cryptlex API authentication
-  CryptlexPassword:
-    Type: String
-    NoEcho: true
-    Description: Password for Cryptlex API authentication
-  CryptlexProductId:
-    Type: String
-    Description: Default Cryptlex product ID for license creation
 
 Resources:
-
-  # --- DynamoDB table for API key authentication ---
-  ApiKeysTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: cryptlex-wrapper-api-keys
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: api_key
-          AttributeType: S
-      KeySchema:
-        - AttributeName: api_key
-          KeyType: HASH
-
-  # --- Secrets Manager for Cryptlex credentials ---
-  CryptlexCredentialsSecret:
-    Type: AWS::SecretsManager::Secret
-    Properties:
-      Name: cryptlex-api-credentials
-      Description: Cryptlex API login credentials
-      SecretString: !Sub |
-        {
-          "account_id": "${CryptlexAccountId}",
-          "email": "${CryptlexEmail}",
-          "password": "${CryptlexPassword}",
-          "product_id": "${CryptlexProductId}"
-        }
 
   # --- API Gateway ---
   CryptlexApi:
@@ -72,11 +28,6 @@ Resources:
       Handler: src.provision_license.handler
       CodeUri: .
       Description: Provisions a new Cryptlex license
-      Policies:
-        - DynamoDBReadPolicy:
-            TableName: !Ref ApiKeysTable
-        - AWSSecretsManagerGetSecretValuePolicy:
-            SecretArn: !Ref CryptlexCredentialsSecret
       Events:
         PostLicense:
           Type: Api
@@ -93,11 +44,6 @@ Resources:
       Handler: src.offline_activation.handler
       CodeUri: .
       Description: Creates an offline activation for a Cryptlex license
-      Policies:
-        - DynamoDBReadPolicy:
-            TableName: !Ref ApiKeysTable
-        - AWSSecretsManagerGetSecretValuePolicy:
-            SecretArn: !Ref CryptlexCredentialsSecret
       Events:
         PostOfflineActivation:
           Type: Api

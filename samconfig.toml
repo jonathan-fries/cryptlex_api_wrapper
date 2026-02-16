@@ -1,5 +1,5 @@
 # AWS SAM deployment configuration.
-# Fill in your values and run:  sam deploy
+# Run:  sam build && sam deploy
 
 version = 0.1
 
@@ -10,10 +10,3 @@ s3_prefix = "cryptlex-api-wrapper"
 region = "us-east-1"
 confirm_changeset = true
 capabilities = "CAPABILITY_IAM"
-
-parameter_overrides = [
-    "CryptlexAccountId=YOUR_ACCOUNT_ID",
-    "CryptlexEmail=YOUR_EMAIL",
-    "CryptlexPassword=YOUR_PASSWORD",
-    "CryptlexProductId=YOUR_PRODUCT_ID",
-]
