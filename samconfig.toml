@@ -1,0 +1,12 @@
+# AWS SAM deployment configuration.
+# Run:  sam build && sam deploy
+
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "cryptlex-api-wrapper"
+resolve_s3 = true
+s3_prefix = "cryptlex-api-wrapper"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"

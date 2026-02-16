@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Cryptlex API Wrapper - Lambda functions for license provisioning and offline activation
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 30
+    MemorySize: 256
+    Environment:
+      Variables:
+        CRYPTLEX_BASE_URL: https://api.cryptlex.com/v3
+
+Resources:
+
+  # --- API Gateway ---
+  CryptlexApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: prod
+      Description: Cryptlex API Wrapper
+
+  # --- Lambda: Provision License ---
+  ProvisionLicenseFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: cryptlex-provision-license
+      Handler: src.provision_license.handler
+      CodeUri: .
+      Description: Provisions a new Cryptlex license
+      Events:
+        PostLicense:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CryptlexApi
+            Path: /licenses
+            Method: POST
+
+  # --- Lambda: Offline Activation ---
+  OfflineActivationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: cryptlex-offline-activation
+      Handler: src.offline_activation.handler
+      CodeUri: .
+      Description: Creates an offline activation for a Cryptlex license
+      Events:
+        PostOfflineActivation:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CryptlexApi
+            Path: /activations/offline
+            Method: POST
+
+Outputs:
+  ApiUrl:
+    Description: URL of the Cryptlex wrapper API
+    Value: !Sub "https://${CryptlexApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
+  ProvisionLicenseArn:
+    Description: ARN of the Provision License function
+    Value: !GetAtt ProvisionLicenseFunction.Arn
+  OfflineActivationArn:
+    Description: ARN of the Offline Activation function
+    Value: !GetAtt OfflineActivationFunction.Arn
