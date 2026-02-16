@@ -22,70 +22,75 @@ def _api_gateway_event(body=None, api_key="test-key-123"):
 MOCK_CALLER = {"api_key": "test-key-123", "customer": "Test Corp", "active": True}
 
 
+# Expected fixed values sent to Cryptlex on every provision call.
+EXPECTED_PRODUCT_ID = "1698882a-8ec9-4016-a452-875811d3c953"
+EXPECTED_LICENSE_DEFAULTS = {
+    "allowedActivations": 2,
+    "type": "hosted-floating",
+    "licenseTemplateId": "2198e1f1-c416-44a2-b3e7-942233ca1d15",
+    "validity": 31536000,
+    "metadata": [
+        {
+            "key": "LICENSE_VERSION",
+            "value": "full",
+            "viewPermissions": ["activation"],
+            "visible": True,
+        }
+    ],
+}
+
+
 # ---- Provision License Tests ----
 
 class TestProvisionLicense:
     @patch("src.provision_license.create_license")
     @patch("src.provision_license.validate_api_key", return_value=MOCK_CALLER)
-    def test_success_with_explicit_product_id(self, mock_auth, mock_create):
+    def test_success_creates_license_with_fixed_params(self, mock_auth, mock_create):
         mock_create.return_value = {"id": "lic-123", "key": "ABCD-EFGH"}
-        event = _api_gateway_event({"product_id": "prod-456"})
+        event = _api_gateway_event()
 
         resp = provision_handler(event, None)
 
         assert resp["statusCode"] == 200
         body = json.loads(resp["body"])
         assert body["id"] == "lic-123"
-        mock_create.assert_called_once_with("prod-456")
+        assert body["key"] == "ABCD-EFGH"
+        mock_create.assert_called_once_with(EXPECTED_PRODUCT_ID, **EXPECTED_LICENSE_DEFAULTS)
 
-    @patch("src.provision_license.get_cryptlex_credentials")
     @patch("src.provision_license.create_license")
     @patch("src.provision_license.validate_api_key", return_value=MOCK_CALLER)
-    def test_falls_back_to_default_product_id(self, mock_auth, mock_create, mock_creds):
-        mock_creds.return_value = {"product_id": "default-prod"}
+    def test_always_uses_fixed_product_id(self, mock_auth, mock_create):
+        mock_create.return_value = {"id": "lic-456"}
+        event = _api_gateway_event()
+
+        provision_handler(event, None)
+
+        call_args = mock_create.call_args
+        assert call_args[0][0] == EXPECTED_PRODUCT_ID
+
+    @patch("src.provision_license.create_license")
+    @patch("src.provision_license.validate_api_key", return_value=MOCK_CALLER)
+    def test_sends_correct_metadata(self, mock_auth, mock_create):
         mock_create.return_value = {"id": "lic-789"}
-        event = _api_gateway_event({})
+        event = _api_gateway_event()
 
-        resp = provision_handler(event, None)
+        provision_handler(event, None)
 
-        assert resp["statusCode"] == 200
-        mock_create.assert_called_once_with("default-prod")
+        call_kwargs = mock_create.call_args[1]
+        assert len(call_kwargs["metadata"]) == 1
+        meta = call_kwargs["metadata"][0]
+        assert meta["key"] == "LICENSE_VERSION"
+        assert meta["value"] == "full"
+        assert meta["viewPermissions"] == ["activation"]
+        assert meta["visible"] is True
 
     @patch("src.provision_license.validate_api_key", return_value=None)
     def test_rejects_bad_api_key(self, mock_auth):
-        event = _api_gateway_event({"product_id": "prod-1"})
+        event = _api_gateway_event()
 
         resp = provision_handler(event, None)
 
         assert resp["statusCode"] == 401
-
-    @patch("src.provision_license.validate_api_key", return_value=MOCK_CALLER)
-    def test_rejects_invalid_json(self, mock_auth):
-        event = {
-            "headers": {"Authorization": "Bearer test-key-123"},
-            "body": "not json",
-        }
-
-        resp = provision_handler(event, None)
-
-        assert resp["statusCode"] == 400
-
-    @patch("src.provision_license.create_license")
-    @patch("src.provision_license.validate_api_key", return_value=MOCK_CALLER)
-    def test_forwards_optional_params(self, mock_auth, mock_create):
-        mock_create.return_value = {"id": "lic-999"}
-        event = _api_gateway_event({
-            "product_id": "prod-1",
-            "allowed_activations": 5,
-            "type": "node-locked",
-        })
-
-        resp = provision_handler(event, None)
-
-        assert resp["statusCode"] == 200
-        mock_create.assert_called_once_with(
-            "prod-1", allowedActivations=5, type="node-locked"
-        )
 
 
 # ---- Offline Activation Tests ----
